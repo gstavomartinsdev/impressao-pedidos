@@ -25,6 +25,15 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 app.use(bodyParser.json());
 
+// ROTA RAIZ: Apenas para verificar se a API está online
+app.get('/', (req, res) => {
+    res.json({
+        status: "online",
+        message: "API de Fila de Impressão está operacional.",
+        timestamp: new Date().toISOString()
+    });
+});
+
 // --- MIDDLEWARES DE AUTENTICAÇÃO ---
 
 // Valida o token JWT enviado pelo agente de impressão desktop
