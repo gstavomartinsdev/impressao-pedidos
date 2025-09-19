@@ -1,6 +1,6 @@
-// index.js
+// index.js (VERSÃO CORRIGIDA E FINAL)
 
-// Carrega as variáveis de ambiente do arquivo .env para o desenvolvimento local
+// Carrega as variáveis de ambiente do arquivo .env
 require('dotenv').config();
 
 const express = require('express');
@@ -25,31 +25,19 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 app.use(bodyParser.json());
 
-// ROTA RAIZ: Apenas para verificar se a API está online
-app.get('/', (req, res) => {
-    res.json({
-        status: "online",
-        message: "API de Fila de Impressão está operacional.",
-        timestamp: new Date().toISOString()
-    });
-});
-
 // --- MIDDLEWARES DE AUTENTICAÇÃO ---
-
-// Valida o token JWT enviado pelo agente de impressão desktop
 function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
-    if (token == null) return res.sendStatus(401); // Não autorizado
+    if (token == null) return res.sendStatus(401);
 
     jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-        if (err) return res.sendStatus(403); // Token inválido/expirado
+        if (err) return res.sendStatus(403);
         req.user = user;
         next();
     });
 }
 
-// Valida a chave de API enviada pelo N8N
 function authenticateN8N(req, res, next) {
     const providedKey = req.headers['x-api-key'];
     if (providedKey && providedKey === process.env.API_KEY_N8N) {
@@ -59,8 +47,16 @@ function authenticateN8N(req, res, next) {
     }
 }
 
-
 // --- ROTAS DA API ---
+
+// ROTA RAIZ: Para verificar se a API está online
+app.get('/', (req, res) => {
+    res.json({
+        status: "online",
+        message: "API de Fila de Impressão está operacional.",
+        timestamp: new Date().toISOString()
+    });
+});
 
 // ROTA DE LOGIN: O agente desktop usa para obter um token de acesso
 app.post('/login', async (req, res) => {
@@ -86,9 +82,9 @@ app.post('/login', async (req, res) => {
 
 // ROTA PARA N8N: Adiciona um novo trabalho à fila de impressão
 app.post('/jobs/new', authenticateN8N, async (req, res) => {
-    const { job_data } = req.body;
+    const job_data  = req.body; // Aceita o corpo inteiro como job_data
     if (!job_data || typeof job_data !== 'object') {
-        return res.status(400).json({ message: "O campo 'job_data' é obrigatório e deve ser um objeto JSON." });
+        return res.status(400).json({ message: "O corpo da requisição deve ser um objeto JSON." });
     }
     try {
         const result = await pool.query(
@@ -108,7 +104,7 @@ app.get('/jobs/next', authenticateToken, async (req, res) => {
     try {
         await client.query('BEGIN');
         const query = `
-            SELECT id FROM impressao_fila
+            SELECT * FROM impressao_fila
             WHERE status = 'pending'
             ORDER BY created_at ASC
             LIMIT 1
@@ -118,7 +114,7 @@ app.get('/jobs/next', authenticateToken, async (req, res) => {
 
         if (result.rows.length === 0) {
             await client.query('COMMIT');
-            return res.status(204).send(); // Fila vazia, sem conteúdo
+            return res.status(204).send(); // Fila vazia
         }
         
         const jobId = result.rows[0].id;
@@ -143,17 +139,36 @@ app.get('/jobs/next', authenticateToken, async (req, res) => {
 app.post('/jobs/:id/complete', authenticateToken, async (req, res) => {
     const jobId = parseInt(req.params.id, 10);
     try {
-        const result = await pool.query('DELETE FROM impressao_fila WHERE id = $1', [jobId]);
+        // ATUALIZA o status para 'completed' e registra a data/hora.
+        const result = await pool.query(
+            "UPDATE impressao_fila SET status = 'completed', completed_at = NOW() WHERE id = $1 AND status = 'processing'",
+            [jobId]
+        );
         if (result.rowCount === 0) {
-            return res.status(404).json({ message: "Trabalho não encontrado." });
+            return res.status(404).json({ message: "Trabalho não encontrado ou em estado inválido." });
         }
-        res.status(200).json({ message: `Trabalho ${jobId} concluído e removido da fila.` });
+        res.status(200).json({ message: `Trabalho ${jobId} marcado como concluído.` });
     } catch (err) {
         console.error(`Erro no /jobs/${jobId}/complete:`, err);
         res.status(500).json({ message: "Erro interno do servidor." });
     }
 });
 
+// ROTA PARA AGENTE DESKTOP: Busca o histórico dos últimos 100 pedidos impressos
+app.get('/jobs/history', authenticateToken, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT id, job_data, completed_at FROM impressao_fila 
+             WHERE status = 'completed' 
+             ORDER BY completed_at DESC 
+             LIMIT 100`
+        );
+        res.status(200).json(result.rows);
+    } catch (err) {
+        console.error("Erro no /jobs/history:", err);
+        res.status(500).json({ message: "Erro interno do servidor." });
+    }
+});
 
 // --- INICIALIZAÇÃO DO SERVIDOR ---
 app.listen(PORT, '0.0.0.0', () => {
