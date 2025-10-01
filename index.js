@@ -47,7 +47,6 @@ function authenticateN8N(req, res, next) {
 }
 
 // --- ROTAS DA API ---
-
 app.get('/', (req, res) => {
     res.json({ status: "online", version: "final", message: "API de Fila de Impressão está operacional." });
 });
