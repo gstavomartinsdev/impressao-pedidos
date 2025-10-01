@@ -7,34 +7,6 @@ const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-// --- NOVO SISTEMA DE LOG INTERNO ---
-const LOG_HISTORY_SIZE = 200; // Quantidade de logs a serem guardados na memória
-const logHistory = [];
-
-// Função que captura os logs
-function customLogger(level, ...args) {
-    const timestamp = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
-    const message = args.map(arg => (typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg)).join(' ');
-    
-    logHistory.unshift({ timestamp, level, message });
-
-    if (logHistory.length > LOG_HISTORY_SIZE) {
-        logHistory.pop();
-    }
-
-    const originalConsoleMethod = level === 'error' ? console.error : console.log;
-    originalConsoleMethod(`[${timestamp}] [${level.toUpperCase()}]`, ...args);
-}
-
-// Intercepta console.log e console.error para usar nossa função
-// (Fazemos uma pequena verificação para evitar re-sobrescrever se o script recarregar)
-if (!console.log_original) {
-    console.log_original = console.log;
-    console.error_original = console.error;
-    console.log = (...args) => customLogger('info', ...args);
-    console.error = (...args) => customLogger('error', ...args);
-}
-
 // --- VALIDAÇÃO DAS VARIÁVEIS DE AMBIENTE ---
 const requiredEnv = ['PORT', 'DATABASE_URL', 'JWT_SECRET', 'API_KEY_N8N'];
 for (const env of requiredEnv) {
@@ -74,27 +46,9 @@ function authenticateN8N(req, res, next) {
     }
 }
 
-function authenticateAdmin(req, res, next) {
-    // Define a chave de admin. Tenta pegar da variável de ambiente primeiro,
-    // se não encontrar, usa a chave temporária '123456'.
-    const adminKey = process.env.ADMIN_API_KEY || '123456';
-
-    const providedKey = req.headers['x-admin-key'];
-    if (providedKey && providedKey === adminKey) {
-        next();
-    } else {
-        res.status(401).json({ message: "Chave de Administrador inválida ou ausente." });
-    }
-}
-
 // --- ROTAS DA API ---
 app.get('/', (req, res) => {
     res.json({ status: "online", version: "final", message: "API de Fila de Impressão está operacional." });
-});
-
-// *** EXIBIÇÃO DE LOGS ***
-app.get('/admin/logs', authenticateAdmin, (req, res) => {
-    res.status(200).json(logHistory);
 });
 
 // ROTA DE LOGIN
